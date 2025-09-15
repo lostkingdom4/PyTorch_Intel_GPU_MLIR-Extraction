@@ -1,0 +1,79 @@
+#!/bin/bash
+#SBATCH --partition=gpu
+#SBATCH --gres=gpu:a100:1
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=4
+#SBATCH --mem=64G
+#SBATCH --time=1:00:00
+#SBATCH --job-name=inductor_dump
+#SBATCH --output=logs/%x-%j.out
+#SBATCH --error=logs/%x-%j.err
+
+set -euo pipefail
+
+# --- Prep dirs ---
+cd "$SLURM_SUBMIT_DIR"
+mkdir -p logs
+
+# --- Modules / env (adjust to your cluster) ---
+module purge
+module load gcc/13.3.0
+# module load cuda/12.3   # uncomment if your site requires a CUDA module
+
+# If you use conda:
+if command -v conda >/dev/null 2>&1; then
+  eval "$(conda shell.bash hook)"
+  conda activate triton
+fi
+
+# --- Inductor/Triton debug + autotune ---
+export TORCH_COMPILE_DEBUG=1                         # dumps ./torch_compile_debug/<graph>/
+export TORCHINDUCTOR_MAX_AUTOTUNE=1                  # enable max-autotune
+
+# Verbose Torch logs (comma-separated tokens)
+export TORCH_LOGS="inductor,output_code,kernel_code,schedule,graph,graph_code"
+export TORCH_LOGS_OUT="logs/torchlogs-${SLURM_JOB_ID}.txt"
+
+# Caches pinned to submit dir (persist after job)
+export TRITON_CACHE_DIR="$SLURM_SUBMIT_DIR/.triton_cache"
+export TORCHINDUCTOR_CACHE_DIR="$SLURM_SUBMIT_DIR/.torch_inductor_cache"
+export XDG_CACHE_HOME="$SLURM_SUBMIT_DIR/.cache"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" "$XDG_CACHE_HOME"
+
+# Optional TF32 on A100 (harmless if not set)
+# export TORCH_ALLOW_TF32_CUBLAS=1
+# export TORCH_ALLOW_TF32_CUDNN=1
+
+# --- Clean old snapshots (optional) ---
+rm -rf ./torch_compile_debug "$HOME/.triton/cache" "$HOME/.torch/inductor" || true
+
+# --- Choose workload (passed by launcher) ---
+WORKLOAD=${WORKLOAD:-generate_torch_compile_autotune_logs.py}
+if [[ ! -f "$WORKLOAD" ]]; then
+  echo "ERROR: workload script '$WORKLOAD' not found in $PWD" >&2
+  exit 2
+fi
+
+# --- Run & capture logs ---
+python "$WORKLOAD" 2>&1 | tee "logs/run-${SLURM_JOB_ID}.autotune.log"
+
+# --- Show likely cache locations for quick sanity check ---
+find "${TMPDIR:-/tmp}" -maxdepth 4 -type d \( -name '*triton*' -o -name '*inductor*' \) 2>/dev/null || true
+[ -n "${XDG_CACHE_HOME:-}" ] && ls -al "$XDG_CACHE_HOME"/{triton,torch/inductor} 2>/dev/null || true
+ls -al ~/.triton/cache ~/.torch/inductor 2>/dev/null || true
+
+# --- Package artifacts if present ---
+paths=()
+[ -d "./torch_compile_debug" ]                          && paths+=("./torch_compile_debug")
+[ -d "$TRITON_CACHE_DIR" ]                              && paths+=("$TRITON_CACHE_DIR")
+[ -d "$TORCHINDUCTOR_CACHE_DIR" ]                       && paths+=("$TORCHINDUCTOR_CACHE_DIR")
+[ -f "logs/run-${SLURM_JOB_ID}.autotune.log" ]          && paths+=("logs/run-${SLURM_JOB_ID}.autotune.log")
+[ -f "logs/torchlogs-${SLURM_JOB_ID}.txt" ]             && paths+=("logs/torchlogs-${SLURM_JOB_ID}.txt")
+
+if [ ${#paths[@]} -gt 0 ]; then
+  tar -czf "inductor_artifacts-${SLURM_JOB_ID}.tgz" "${paths[@]}"
+  echo "Artifacts: inductor_artifacts-${SLURM_JOB_ID}.tgz"
+else
+  echo "No artifacts to package (did compilation run?)."
+fi
