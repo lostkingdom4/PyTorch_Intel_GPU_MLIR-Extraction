@@ -9,3 +9,12 @@ torch_compile_debug/
 env/
 Data/pytorch_modules/
 Data/triton_modules/
+example/
+generated/
+igc_dumps/
+runs/
+scripts/
+synthetic_data_examples/
+*.sh
+*.json
+*.csv
