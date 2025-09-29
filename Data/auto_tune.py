@@ -173,19 +173,14 @@ def find_triton_entrypoint(triton_mod: types.ModuleType):
                 continue
     return None, None
 
-def find_kernel_entrypoints(triton_mod: types.ModuleType) -> List[Tuple[str, Any]]:
-    entries = []
-    for name, obj in vars(triton_mod).items():
-        print(name, obj)
-        continue
+def find_kernel_entrypoints(kernel_info: List[Dict[str, Any]], triton_mod: types.ModuleType) -> Dict[str, Any]:
+    entries = {}
+    for kernel_name, grid_args in kernel_info:
+        obj = getattr(triton_mod, kernel_name, None)
         if callable(obj) and not isinstance(obj, type):
-            try:
-                if hasattr(obj, "is_triton_jit") and obj.is_triton_jit:
-                    entries.append((name, obj))
-            except Exception:
-                continue
+            entries[kernel_name] = obj
+            print(f"Found kernel entrypoint: {kernel_name} with grid args {grid_args}")
     return entries
-
 
 def device_sync():
     if torch.cuda.is_available():
@@ -281,12 +276,15 @@ def main():
             print(f"  -> Detected meta-parameters: {meta_names}")
         else:
             print(f"  [TUNE-SKIP] Triton file missing: {tri_file.name}")
+            
+        if kernel_info and kernel_info == []:
+            print("Didn't detect triton kernel launches in source")
 
         tune_result = {"error": "triton_unavailable"} if triton is None else {"skipped": True}
         if tri_file.exists() and triton is not None:
             try:
                 tri_mod = dynamic_import_from_path(f"tri_{mod_name}", str(tri_file))
-                find_kernel_entrypoints(tri_mod)
+                find_kernel_entrypoints(kernel_info, tri_mod)
                 exit()
                 entry, entry_name = find_triton_entrypoint(tri_mod)
                 print(f"  -> Detected triton entrypoint: {entry_name}")
@@ -299,6 +297,7 @@ def main():
             except Exception as e:
                 print(f"  [TUNE-ERROR] {e}")
                 tune_result = {"error": str(e)}
+                sys.exit(1)
         elif tri_file.exists() and triton is None:
             print(f"  [TUNE-SKIP] Triton not available: {triton_import_error}")
 

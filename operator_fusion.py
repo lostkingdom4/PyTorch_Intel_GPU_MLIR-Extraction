@@ -3,13 +3,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from datasets import load_dataset  
+from datasets import load_dataset, Dataset
 import argparse
 import logging
 import os
 import sys
 import multiprocessing as mp
 from functools import partial
+import pandas as pd
 
 # import torch
 # import torch._dynamo
@@ -41,11 +42,13 @@ def main_one_file(fn, path, args):
 	return
 
 def load_code(ds, run_dir, args):
-	for data in ds['train']:
+	for data in ds:
+		repo_name = data['repo_name'].replace('/', '_')
 		module_name = data['module_name']
 		module_dir = os.path.join(run_dir, 'cleaned_pytorch_modules')
 		os.makedirs(module_dir, exist_ok=True)
-		code_path = os.path.join(module_dir, data['module_name'] + '.py')
+		code_path = os.path.join(module_dir, f"{repo_name}.{module_name}.py")
+		print(code_path)
 
 		if os.path.exists(code_path):
 			log.info(f'Skipping {module_name}, already exists')
@@ -175,8 +178,9 @@ def main(raw_args=None):
 	os.environ['RLIMIT_AS_GB'] = str(args.memory_limit_gb)
 
 	if args.load:
-		ds = load_dataset("GPUMODE/KernelBook")
-		ds['train'] = ds['train'].select(range(10))
+		df = pd.read_parquet("hf://datasets/GPUMODE/KernelBook/dataset_permissive.parquet")
+		ds = Dataset.from_pandas(df)
+		# ds = ds.select(range(10))
 		load_code(ds, args.run_dir, args)
 
 	write_helpers(args.run_dir)

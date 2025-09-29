@@ -121,7 +121,7 @@ def evaluate_nn_module(
 		cache_dir = os.path.join(run_dir, 'inductor_cache')
 		os.makedirs(log_dir, exist_ok=True)
 		os.makedirs(cache_dir, exist_ok=True)
-		log_name = os.path.join(run_dir, f'inductor_logs/{nn_cls.__name__}.txt')
+		log_name = os.path.join(run_dir, f'inductor_logs/{repo_name}.{nn_cls.__name__}.txt')
 
 		set_env_vars(log_name, cache_dir)
 
@@ -261,9 +261,9 @@ def evaluate_pyfile_subproc(tempdir: str, path: str, args, run_dir: str = None):
 	"""
 	errors = ErrorAggregatorDict(path)
 	stats = Stats()
-	module_name = path.split('/')[-1].split('.')[0]
+	module_name = path.split('/')[-1].split('.')[1]
 	code = open(path, 'r').read()
-	repo_name = None
+	repo_name = path.split('/')[-1].split('.')[0]
 	nn_cls, get_forward_args, get_init_args = import_Model_and_args_from_code(code, module_name)
 
 	if not nn_cls:
@@ -336,6 +336,9 @@ def evaluate_all(
 	synthetic_tests_dir = os.path.join(run_dir, 'synthetic_modules')
 	os.makedirs(tests_dir, exist_ok=True)
 	os.makedirs(synthetic_tests_dir, exist_ok=True)
+ 
+	print('Running with synthetic_tests_dir:', synthetic_tests_dir)
+	print('Running tests in', tests_dir)
 
 	feval = partial(evaluate_pyfile_subproc, args=args, run_dir=run_dir)
 	fn = partial(subproc_wrapper, fn=feval, fresh_cache_dir=args.fresh_cache_dir)
@@ -346,6 +349,7 @@ def evaluate_all(
 
 	if args.synthetic_data_dir:
 		synthetic_files = [f for f in os.listdir(args.synthetic_data_dir) if f.endswith('.py')]
+		print('Found {} synthetic files'.format(len(synthetic_files)))
 		synthetic_files.sort()
 		if args.shard_num > len(synthetic_files):
 			synthetic_files = []
