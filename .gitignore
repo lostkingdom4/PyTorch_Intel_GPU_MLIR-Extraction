@@ -18,3 +18,4 @@ synthetic_data_examples/
 *.sh
 *.json
 *.csv
+Data/
