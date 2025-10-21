@@ -19,3 +19,4 @@ synthetic_data_examples/
 *.json
 *.csv
 Data/
+playground/
