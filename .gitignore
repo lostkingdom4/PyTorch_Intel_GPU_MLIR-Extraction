@@ -20,3 +20,6 @@ synthetic_data_examples/
 *.csv
 Data/
 playground/
+.github/
+.vscode/
+.ruffle_cache/
